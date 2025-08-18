@@ -1,0 +1,8 @@
+<h1>Simple Counter</h1>
+<div x-data="{ count: 0 }">
+    <button x-on:click="count++">Increment</button>
+    <span x-text="count"></span>
+    <button x-on:click="count<=0?count:count--">Decrement</button>
+</div>
+
+<script src="script.js"></script>
