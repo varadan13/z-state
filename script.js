@@ -1,256 +1,185 @@
-
 function domReady() {
-    return new Promise(resolve => {
-        if (document.readyState == "loading") {
-            document.addEventListener("DOMContentLoaded", resolve)
-        } else {
-            resolve()
-        }
-    })
-}
-
-
-
-function walkSkippingNestedComponents(el, callback, isRoot = true) {
-    if (el.hasAttribute('x-data') && !isRoot) return
-
-    callback(el)
-
-    let node = el.firstElementChild
-
-    while (node) {
-        walkSkippingNestedComponents(node, callback, false)
-
-        node = node.nextElementSibling
+  return new Promise((resolve) => {
+    if (document.readyState == "loading") {
+      document.addEventListener("DOMContentLoaded", resolve);
+    } else {
+      resolve();
     }
+  });
 }
 
+function walkDepthFirst(el, callback) {
+  callback(el);
 
+  let node = el.firstElementChild;
 
-
-function saferEval(expression, dataContext, additionalHelperVariables = {}) {
-
-    
-
-    return (new Function(['$data', ...Object.keys(additionalHelperVariables)], `var result; with($data) { result = ${expression} }; return result`))(
-        dataContext,...Object.values(additionalHelperVariables)
-    ) 
+  while (node) {
+    walkDepthFirst(node, callback);
+    node = node.nextElementSibling;
+  }
 }
 
-
-function isXAttr(attr) {
-    const xAttrRE = /x-(on|bind|data|text|model|if|show|cloak|ref)/
-
-    return xAttrRE.test(attr.name)
+function zEval(expression, dataContext, additionalHelperVariables = {}) {
+  return new Function(
+    ["$data", ...Object.keys(additionalHelperVariables)],
+    `var result; with($data) { result = ${expression} }; return result`
+  )(dataContext, ...Object.values(additionalHelperVariables));
 }
 
-function getXAttrs(el, type) {
-    return Array.from(el.attributes)
-        .filter(isXAttr)
-        .map(attr => {
-            const typeMatch = attr.name.match(/x-(on|bind|data|text|model|if|show|cloak|ref)/)
-            const valueMatch = attr.name.match(/:([a-zA-Z\-]+)/)
-            const modifiers = attr.name.match(/\.[^.\]]+(?=[^\]]*$)/g) || []
+function isZAttr(attr) {
+  const zAttrRE = /z-(on|data|text)/;
+  return zAttrRE.test(attr.name);
+}
 
-            return {
-                type: typeMatch ? typeMatch[1] : null,
-                value: valueMatch ? valueMatch[1] : null,
-                modifiers: modifiers.map(i => i.replace('.', '')),
-                expression: attr.value,
-            }
-        })
-       
+function getZAttrs(el) {
+  return Array.from(el.attributes)
+    .filter(isZAttr)
+    .map((attr) => {
+      const typeMatch = attr.name.match(/z-(on|data|text)/);
+      const valueMatch = attr.name.match(/:([a-zA-Z\-]+)/);
+      const modifiers = attr.name.match(/\.[^.\]]+(?=[^\]]*$)/g) || [];
+
+      const res = {
+        type: typeMatch ? typeMatch[1] : null,
+        value: valueMatch ? valueMatch[1] : null,
+        modifiers: modifiers.map((i) => i.replace(".", "")),
+        expression: attr.value,
+      };
+
+      console.log("getZAttrs attribute values:", res);
+
+      return res;
+    });
 }
 
 class Component {
-    constructor(el) {
-        this.el = el
+  constructor(el) {
+    this.el = el;
 
+    const rawData = zEval(this.el.getAttribute("z-data"), {});
 
-        const t = this.el.getAttribute('x-data')
+    this.data = this.wrapDataInObservable(rawData);
 
-        const rawData = saferEval(this.el.getAttribute('x-data'), {})
+    this.initialize();
+  }
 
-        
-        
+  wrapDataInObservable(data) {
+    var self = this;
 
+    const proxyHandler = () => {
+      return {
+        set(obj, property, value) {
+          const setWasSuccessful = Reflect.set(obj, property, value);
 
-        this.data = this.wrapDataInObservable(rawData)
+          self.refresh();
 
+          return setWasSuccessful;
+        },
+      };
+    };
 
+    return new Proxy(data, proxyHandler());
+  }
 
+  initialize() {
+    walkDepthFirst(this.el, (el) => {
+      this.initializeElement(el);
+    });
+  }
 
+  initializeElement(el) {
+    getZAttrs(el).forEach(({ type, value, modifiers, expression }) => {
+      switch (type) {
+        case "on":
+          var event = value;
+          this.registerListener(el, event, modifiers, expression);
+          break;
 
-        this.initialize()
+        case "text":
+          var { output } = this.evaluateReturnExpression(expression);
+          this.updateTextValue(el, output);
+          break;
 
+        default:
+          break;
+      }
+    });
+  }
 
-    }
+  refresh() {
+    var self = this;
 
-    wrapDataInObservable(data) {
+    walkDepthFirst(this.el, function (el) {
+      getZAttrs(el).forEach(({ type, value, modifiers, expression }) => {
+        switch (type) {
+          case "text":
+            var { output } = self.evaluateReturnExpression(expression);
 
+            self.updateTextValue(el, output);
 
-        var self = this
+            break;
 
-        const proxyHandler = () => {
-            return ({
-                set(obj, property, value) {
-
-                    const setWasSuccessful = Reflect.set(obj, property, value)
-
-
-                    self.refresh()
-
-                    return setWasSuccessful
-                },
-            })
+          default:
+            break;
         }
+      });
+    });
+  }
 
+  registerListener(el, event, modifiers, expression) {
+    const node = el;
 
+    const handler = (e) => {
+      this.runListenerHandler(expression, e);
+    };
 
-        return new Proxy(data, proxyHandler())
-    }
+    node.addEventListener(event, handler);
+  }
 
-    initialize() {
+  runListenerHandler(expression, e) {
+    this.evaluateCommandExpression(expression);
+  }
 
+  evaluateReturnExpression(expression) {
+    const result = this.data[expression];
 
+    return {
+      output: result,
+    };
+  }
 
-        walkSkippingNestedComponents(this.el, el => {
-            this.initializeElement(el)
-        })
-    }
+  evaluateCommandExpression(expression, extraData) {
+    zEval(expression, this.data, extraData);
+  }
 
-    initializeElement(el) {
-        const t = getXAttrs(el)
-
-        getXAttrs(el).forEach(({ type, value, modifiers, expression }) => {
-            switch (type) {
-                case 'on':
-                    var event = value
-                    this.registerListener(el, event, modifiers, expression)
-                    break;
-
-
-
-                case 'text':
-                    var { output } = this.evaluateReturnExpression(expression)
-                    this.updateTextValue(el, output)
-                    break;
-
-
-                default:
-
-                    break;
-            }
-        })
-    }
-
-
-    refresh() {
-
-
-
-        var self = this
-
-        walkSkippingNestedComponents(this.el, function (el) {
-            getXAttrs(el).forEach(({ type, value, modifiers, expression }) => {
-                switch (type) {
-
-                    case 'text':
-                        var { output } = self.evaluateReturnExpression(expression)
-
-                        self.updateTextValue(el, output)
-
-                        
-                        break;
-
-
-
-                    default:
-                        break;
-                }
-            })
-
-        })
-
-    }
-
-
-
-    registerListener(el, event, modifiers, expression) {
-
-        const node =el
-
-
-
-        const handler = e => {
-
-            this.runListenerHandler(expression, e)
-
-        }
-
-        node.addEventListener(event, handler)
+  updateTextValue(el, value) {
+    el.innerText = value;
+  }
 }
 
-    runListenerHandler(expression, e) {
-        
-        this.evaluateCommandExpression(expression)
-    }
+const ZState = {
+  start: async function () {
+    await domReady();
 
-    evaluateReturnExpression(expression) {
-        const result = this.data[expression]
+    this.discoverComponents((el) => {
+      this.initializeElement(el);
+    });
+  },
 
+  discoverComponents: function (callback) {
+    const rootEls = document.querySelectorAll("[z-data]");
 
+    rootEls.forEach((rootEl) => {
+      callback(rootEl);
+    });
+  },
 
-        return {
-            output: result,
+  initializeElement: function (el) {
+    new Component(el);
+  },
+};
 
-        }
-    }
-
-    evaluateCommandExpression(expression, extraData) {
-
-        saferEval(expression, this.data, extraData)
-    }
-
-    updateTextValue(el, value) {
-
-        el.innerText = value
-    }
-
-
-
+if (!window.ZState) {
+  window.ZState = ZState;
+  window.ZState.start();
 }
-
-
-const Alpine = {
-    start: async function () {
-        await domReady()
-
-        this.discoverComponents(el => {
-            this.initializeElement(el)
-        })
-
-    },
-
-    discoverComponents: function (callback) {
-        const rootEls = document.querySelectorAll('[x-data]');
-
-
-
-        rootEls.forEach(rootEl => {
-
-            callback(rootEl)
-        })
-    },
-
-    initializeElement: function (el) {
-
-        el.__x = new Component(el)
-    }
-}
-
-if (!window.Alpine ) {
-    window.Alpine = Alpine
-    window.Alpine.start()
-}
-
