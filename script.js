@@ -46,8 +46,6 @@ function getZAttrs(el) {
         expression: attr.value,
       };
 
-      console.log("getZAttrs attribute values:", res);
-
       return res;
     });
 }
