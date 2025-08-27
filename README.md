@@ -98,6 +98,44 @@ function domReady() {
 
 As we already know, this function returns a promise, which resolves if the document’s `readyState` is not `loading` or when the `DOMContentLoaded` event fires.
 
+Now, let's jump into `discoverComponents` function.
+
+`discoverComponents` function:
+
+```js
+function (callback) {
+    const rootEls = document.querySelectorAll("[z-data]");
+
+    rootEls.forEach((rootEl) => {
+      callback(rootEl);
+    });
+  }
+```
+So, it invokes the callback on all the DOM nodes that have the z-data attribute. If we jump back into the HTML code, we see there is only one. 
+
+What is the callback it receives? To find that out, scroll up and check the `start` method.
+
+From the `start` method we see the below code:
+
+```js
+ this.discoverComponents((el) => {
+      this.initializeElement(el);
+    });
+```
+
+In short, the callback initializes these elements.
+
+Now, let's jump into `initializeElement` function.
+
+`initializeElement` function:
+
+```js
+function (el) {
+    new Component(el);
+  }
+```
+
+It basically instantiates a Component object by passing in the reference to the selected DOM node.
 
 
 
